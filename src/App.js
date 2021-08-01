@@ -1,142 +1,124 @@
 import React, { useEffect, useRef } from "react";
+import State from "./State";
+import * as THREE from "three";
+import { getWorldPixelAtZ } from "./Utils";
+import {
+  getPointerById,
+  initScene,
+  makePointerData,
+  removePointer,
+  updatePointer,
+  updateAllOrder,
+  updateAllDown,
+  makeMidpoint,
+  removeMidpoint,
+  updateMidpoint,
+  setDownCamera,
+  setRayFromMouse,
+} from "./Actions";
 
 function App() {
   const canvasRef = useRef(null);
-  const pointerRef = useRef({
-    activePointers: [],
-  });
-  const p1Ref = useRef(null);
-  const p2Ref = useRef(null);
-  const p3Ref = useRef(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const pointer = pointerRef.current;
-    const p1 = p1Ref.current;
-    const p2 = p2Ref.current;
-    const p3 = p3Ref.current;
-    const points = [p1, p2, p3];
-
-    const getOpenSlot = (activePointers) => {
-      // Find order for new pointer
-      // This method preserves continuous touches
-      const orders = activePointers.map((pointer) => pointer.order);
-      let result = points.length;
-      for (let i = 0; i < points.length; i++) {
-        if (!orders.includes(i)) {
-          result = i;
-          break;
-        }
-      }
-      return result;
-    };
-
-    const updatePointDisplay = (activePointers) => {
-      // Use pointer data to update display
-      const orders = activePointers.map((pointer) => pointer.order);
-      for (let i = 0; i < points.length; i++) {
-        const point = points[i];
-        if (orders.includes(i)) {
-          const index = orders.indexOf(i);
-          const active = pointer.activePointers[index];
-          point.style.display = "block";
-          points[i].style.transform = `translate(${active.x}px, ${active.y}px)`;
-        } else {
-          point.style.display = "none";
-        }
-      }
-
-      // handle cursor display
-      if (activePointers.length > 0) {
-        canvas.style.cursor = "none";
-      } else {
-        canvas.style.cursor = "crosshair";
-      }
-    };
-
-    const makePointer = (e) => {
-      // Copy only the event properties we need
-      return {
-        id: e.pointerId,
-        x: e.clientX,
-        y: e.clientY,
-        order: getOpenSlot(pointer.activePointers),
-      };
-    };
 
     const pointerDown = (e) => {
-      // Add pointer
-      pointer.activePointers.push(makePointer(e));
+      const activePointer = makePointerData(e);
+      State.pointers.push(activePointer);
 
-      updatePointDisplay(pointer.activePointers);
+      setDownCamera();
+
+      updateAllOrder(State.pointers);
+      updateAllDown(State.pointers);
+
+      if (State.pointers.length > 1) {
+        removeMidpoint();
+        makeMidpoint();
+      }
 
       canvas.setPointerCapture(e.pointerId);
     };
 
     const pointerMove = (e) => {
-      // Match move event to pointer data
-      const ids = pointer.activePointers.map((pointer) => pointer.id);
-      const activeIndex = ids.indexOf(e.pointerId);
+      if (State.pointers.length > 0) {
+        const activePointer = getPointerById(e.pointerId);
+        updatePointer(activePointer, e);
 
-      if (activeIndex !== -1) {
-        const activePointer = pointer.activePointers[activeIndex];
+        if (State.midpoint !== null) {
+          const midpoint = State.midpoint;
+          updateMidpoint();
 
-        // Update position
-        activePointer.x = e.clientX;
-        activePointer.y = e.clientY;
+          // Directed zoom
+          const zoomData = State.zoomData;
+          const ratio = midpoint.distance / midpoint.down.distance;
+          const newZ = Math.max(
+            0.1,
+            Math.min(30, State.downCamera.position.z / ratio)
+          );
+          zoomData.mouse.copy(midpoint.mouse);
+          setRayFromMouse(zoomData, newZ, State.downCamera);
+
+          // Apply pan on top of ray
+          const worldPixel = getWorldPixelAtZ(State.downCamera.position.z);
+          const diffx = midpoint.mouse.x - midpoint.down.mouse.x;
+          const diffy = midpoint.mouse.y - midpoint.down.mouse.y;
+          State.camera.position.x = zoomData.ray.x - diffx * worldPixel;
+          State.camera.position.y = zoomData.ray.y + diffy * worldPixel;
+          State.camera.position.z = zoomData.ray.z;
+        }
       }
-
-      updatePointDisplay(pointer.activePointers);
     };
 
     const pointerUp = (e) => {
-      // Remove pointer
-      const ids = pointer.activePointers.map((pointer) => pointer.id);
-      const activeIndex = ids.indexOf(e.pointerId);
-      pointer.activePointers.splice(activeIndex, 1);
+      removePointer(e);
 
-      updatePointDisplay(pointer.activePointers);
+      setDownCamera();
+
+      updateAllOrder(State.pointers);
+      updateAllDown(State.pointers);
+
+      removeMidpoint();
+      if (State.pointers.length > 1) {
+        makeMidpoint();
+      }
 
       canvas.releasePointerCapture(e.pointerId);
     };
 
-    // initial hide
-    updatePointDisplay(pointer.activePointers);
-
     canvas.addEventListener("pointerdown", pointerDown);
     canvas.addEventListener("pointermove", pointerMove);
     canvas.addEventListener("pointerup", pointerUp);
+    canvas.addEventListener("pointercancel", pointerUp);
     return () => {
       canvas.removeEventListener("pointerdown", pointerDown);
       canvas.removeEventListener("pointermove", pointerMove);
-      canvas.removeEventListener("pointerup", pointerUp);
+      canvas.removeEventListener("pointercancel", pointerUp);
     };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    State.canvas = canvas;
+    initScene();
+  }, [canvasRef]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      State.camera.aspect = window.innerWidth / window.innerHeight;
+      State.camera.updateProjectionMatrix();
+      State.renderer.setSize(window.innerWidth, window.innerHeight);
+    };
+    window.addEventListener("resize", handleResize);
   }, []);
 
   return (
     <div>
-      <div
-        ref={canvasRef}
-        style={{
-          position: "fixed",
-          left: 0,
-          top: 0,
-          width: "100%",
-          height: "100vh",
-          overflow: "hidden",
-          touchAction: "none",
-        }}
-      >
-        <div ref={p3Ref} className="pointer p3">
-          3
-        </div>
-        <div ref={p2Ref} className="pointer p2">
-          2
-        </div>
-        <div ref={p1Ref} className="pointer p1">
-          1
-        </div>
-      </div>
+      <canvas ref={canvasRef}></canvas>
     </div>
   );
 }

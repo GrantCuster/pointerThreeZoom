@@ -14,6 +14,12 @@ body {
   font-family: "JetBrains Mono", source-code-pro, Menlo, Monaco, Consolas,
     "Courier New", monospace;
   user-select: none;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
 }
 
 .pointer {
@@ -32,13 +38,21 @@ body {
   line-height: 96px;
   opacity: 0.5;
 }
-.p1 {
+.p0 {
   background: cyan;
 }
-.p2 {
+.p1 {
   background: magenta;
 }
-.p3 {
+/* .p2 { */
+/*   background: yellow; */
+/* } */
+.m0 {
+  width: 48px;
+  height: 48px;
+  pointer-events: none;
+  margin-left: -24px;
+  margin-top: -24px;
   background: yellow;
 }
 
